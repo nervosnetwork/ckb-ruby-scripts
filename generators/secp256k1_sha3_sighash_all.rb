@@ -30,7 +30,7 @@ def hex_to_bin(s)
 end
 
 def bin_to_hex(s)
-  s.unpack1("H*")
+  s.unpack("H*")[0]
 end
 
 seckey = hex_to_bin(ARGV[0])
