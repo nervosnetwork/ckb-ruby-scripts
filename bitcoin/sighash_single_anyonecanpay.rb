@@ -16,6 +16,8 @@ def hex_to_bin(s)
   [s].pack("H*")
 end
 
+OUTPUT_INDEX_ERR = "Output index error!".freeze
+
 tx = CKB.load_tx
 blake2b = Blake2b.new
 
@@ -24,11 +26,14 @@ blake2b.update(out_point["hash"])
 blake2b.update(out_point["index"].to_s)
 blake2b.update(CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::LOCK_HASH).readall)
 output_index = ARGV[2].to_i
-output = tx["outputs"][output_index]
-blake2b.update(output["capacity"].to_s)
-blake2b.update(output["lock"])
-if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
-  blake2b.update(hash)
+if output = tx["outputs"][output_index]
+  blake2b.update(output["capacity"].to_s)
+  blake2b.update(output["lock"])
+  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
+    blake2b.update(hash)
+  end
+else
+  raise OUTPUT_INDEX_ERR
 end
 
 hash = blake2b.final

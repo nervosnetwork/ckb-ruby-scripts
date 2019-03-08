@@ -28,6 +28,16 @@ def hex_to_bin(s)
   [s].pack("H*")
 end
 
+def blake2b_single_output(blake2b, output, output_index)
+  blake2b.update(output["capacity"].to_s)
+  blake2b.update(output["lock"])
+  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
+    blake2b.update(hash)
+  end
+end
+
+OUTPUT_INDEX_ERR = "Output index error!".freeze
+
 tx = CKB.load_tx
 blake2b = Blake2b.new
 
@@ -52,30 +62,24 @@ end
 case sighash_type & (~SIGHASH_ANYONECANPAY)
 when SIGHASH_ALL
   tx["outputs"].each_with_index do |output, i|
-    blake2b.update(output["capacity"].to_s)
-    blake2b.update(output["lock"])
-    if hash = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE)
-      blake2b.update(hash)
-    end
+    blake2b_single_output(blake2b, output, i)
   end
 when SIGHASH_SINGLE
   raise "Not enough arguments" unless ARGV[4]
   output_index = ARGV[4].to_i
-  output = tx["outputs"][output_index]
-  blake2b.update(output["capacity"].to_s)
-  blake2b.update(output["lock"])
-  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
-    blake2b.update(hash)
+  if output = tx["outputs"][output_index]
+    blake2b_single_output(blake2b, output, output_index)
+  else
+    raise OUTPUT_INDEX_ERR
   end
 when SIGHASH_MULTIPLE
   raise "Not enough arguments" unless ARGV[4]
   ARGV[4].split(",").each do |output_index|
     output_index = output_index.to_i
-    output = tx["outputs"][output_index]
-    blake2b.update(output["capacity"].to_s)
-    blake2b.update(output["lock"])
-    if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
-      blake2b.update(hash)
+    if output = tx["outputs"][output_index]
+      blake2b_single_output(blake2b, output, output_index)
+    else
+      raise OUTPUT_INDEX_ERR
     end
   end
 end
