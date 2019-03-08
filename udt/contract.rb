@@ -21,7 +21,6 @@ contract_type_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::Category
 
 tx = CKB.load_tx
 
-supermode = false
 # There are 2 ways to execute this contract:
 # * Normal user can run the contract with only contract hash attached
 # as an argument, this will ensure the contract to run sum verification
@@ -50,7 +49,7 @@ if ARGV.length == 3
   unless Secp256k1.verify(hex_to_bin(ARGV[1]), hex_to_bin(ARGV[2]), data)
     raise "Signature verification error!"
   end
-  supermode = true
+  return
 end
 
 input_sum = tx["inputs"].size.times.map do |i|
@@ -71,6 +70,6 @@ end.reduce(&:+)
 
 # This contract here allows destroying tokens, a different contract might
 # choose to forbid this.
-if (!supermode) && input_sum < output_sum
+if input_sum < output_sum
   raise "Sum verification failed!"
 end
