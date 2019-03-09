@@ -25,41 +25,41 @@ contract_type_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::Category
 tx = CKB.load_tx
 
 if ARGV.length == 3
-  message_sha3 = Sha3.new
+  message_blake2b = Blake2b.new
   tx["inputs"].each_with_index do |input, i|
-    message_sha3.update(input["hash"])
-    message_sha3.update(input["index"].to_s)
-    message_sha3.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
+    message_blake2b.update(input["hash"])
+    message_blake2b.update(input["index"].to_s)
+    message_blake2b.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
   end
-  if hex_to_bin(ARGV[0]) != message_sha3.final
+  if hex_to_bin(ARGV[0]) != message_blake2b.final
     raise "Input hash is incorrect!"
   end
 
-  sha3 = Sha3.new
+  blake2b = Blake2b.new
   # Contract type hash already encodes all signed arguments here
-  sha3.update(contract_type_hash)
+  blake2b.update(contract_type_hash)
   tx["inputs"].each_with_index do |input, i|
-    sha3.update(input["hash"])
-    sha3.update(input["index"].to_s)
-    sha3.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
+    blake2b.update(input["hash"])
+    blake2b.update(input["index"].to_s)
+    blake2b.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
     hash = CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::TYPE)
     if hash == contract_type_hash
-      sha3.update(CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::DATA).read(0, 8))
+      blake2b.update(CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::DATA).read(0, 8))
     end
   end
   tx["outputs"].each_with_index do |output, i|
-    sha3.update(output["capacity"].to_s)
-    sha3.update(output["lock"])
+    blake2b.update(output["capacity"].to_s)
+    blake2b.update(output["lock"])
     hash = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE)
     if hash
-      sha3.update(hash)
+      blake2b.update(hash)
       if hash == contract_type_hash
-        sha3.update(CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).read(0, 8))
+        blake2b.update(CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).read(0, 8))
       end
     end
   end
 
-  data = sha3.final
+  data = blake2b.final
 
   unless Secp256k1.verify(hex_to_bin(ARGV[1]), hex_to_bin(ARGV[2]), data)
     raise "Signature verification error!"

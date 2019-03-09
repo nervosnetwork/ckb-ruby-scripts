@@ -3,27 +3,27 @@ if ARGV.length < 2
 end
 
 tx = CKB.load_tx
-sha3 = Sha3.new
+blake2b = Blake2b.new
 
-sha3.update(tx["version"].to_s)
+blake2b.update(tx["version"].to_s)
 tx["deps"].each do |dep|
-  sha3.update(dep["hash"])
-  sha3.update(dep["index"].to_s)
+  blake2b.update(dep["hash"])
+  blake2b.update(dep["index"].to_s)
 end
 tx["inputs"].each do |input|
-  sha3.update(input["hash"])
-  sha3.update(input["index"].to_s)
-  sha3.update(input["unlock"]["version"].to_s)
+  blake2b.update(input["hash"])
+  blake2b.update(input["index"].to_s)
+  blake2b.update(input["unlock"]["version"].to_s)
   # First argument here is signature
   input["unlock"]["arguments"].drop(1).each do |argument|
-    sha3.update(argument)
+    blake2b.update(argument)
   end
 end
 tx["outputs"].each do |output|
-  sha3.update(output["capacity"].to_s)
-  sha3.update(output["lock"])
+  blake2b.update(output["capacity"].to_s)
+  blake2b.update(output["lock"])
 end
-hash = sha3.final
+hash = blake2b.final
 
 pubkey = ARGV[0]
 signature = ARGV[1]
