@@ -31,21 +31,21 @@ supermode = false
 # key for the pubkey attached. With this signature, they will be able to
 # add more tokens.
 if ARGV.length == 3
-  sha3 = Sha3.new
-  sha3.update(contract_type_hash)
+  blake2b = Blake2b.new
+  blake2b.update(contract_type_hash)
   tx["inputs"].each_with_index do |input, i|
     if CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::TYPE) == contract_type_hash
-      sha3.update(CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::DATA).read(0, 8))
+      blake2b.update(CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::DATA).read(0, 8))
     end
   end
   tx["outputs"].each_with_index do |output, i|
     hash = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE)
     if CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE) == contract_type_hash
-      sha3.update(CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).read(0, 8))
+      blake2b.update(CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).read(0, 8))
     end
   end
 
-  data = sha3.final
+  data = blake2b.final
 
   unless Secp256k1.verify(hex_to_bin(ARGV[1]), hex_to_bin(ARGV[2]), data)
     raise "Signature verification error!"

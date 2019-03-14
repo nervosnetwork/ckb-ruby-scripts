@@ -27,57 +27,57 @@ end
 
 
 tx = CKB.load_tx
-sha3 = Sha3.new
+blake2b = Blake2b.new
 
-sha3.update(ARGV[2])
+blake2b.update(ARGV[2])
 sighash_type = ARGV[2].to_i
 
 if sighash_type & SIGHASH_ANYONECANPAY != 0
   # Only hash current input
   out_point = CKB.load_input_out_point(0, CKB::Source::CURRENT)
-  sha3.update(out_point["hash"])
-  sha3.update(out_point["index"].to_s)
-  sha3.update(CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::LOCK_HASH).readall)
+  blake2b.update(out_point["hash"])
+  blake2b.update(out_point["index"].to_s)
+  blake2b.update(CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::LOCK_HASH).readall)
 else
   # Hash all inputs
   tx["inputs"].each_with_index do |input, i|
-    sha3.update(input["hash"])
-    sha3.update(input["index"].to_s)
-    sha3.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
+    blake2b.update(input["hash"])
+    blake2b.update(input["index"].to_s)
+    blake2b.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
   end
 end
 
 case sighash_type & (~SIGHASH_ANYONECANPAY)
 when SIGHASH_ALL
   tx["outputs"].each_with_index do |output, i|
-    sha3.update(output["capacity"].to_s)
-    sha3.update(output["lock"])
+    blake2b.update(output["capacity"].to_s)
+    blake2b.update(output["lock"])
     if hash = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE)
-      sha3.update(hash)
+      blake2b.update(hash)
     end
   end
 when SIGHASH_SINGLE
   raise "Not enough arguments" unless ARGV[3]
   output_index = ARGV[3].to_i
   output = tx["outputs"][output_index]
-  sha3.update(output["capacity"].to_s)
-  sha3.update(output["lock"])
+  blake2b.update(output["capacity"].to_s)
+  blake2b.update(output["lock"])
   if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
-    sha3.update(hash)
+    blake2b.update(hash)
   end
 when SIGHASH_MULTIPLE
   raise "Not enough arguments" unless ARGV[3]
   ARGV[3].split(",").each do |output_index|
     output_index = output_index.to_i
     output = tx["outputs"][output_index]
-    sha3.update(output["capacity"].to_s)
-    sha3.update(output["lock"])
+    blake2b.update(output["capacity"].to_s)
+    blake2b.update(output["lock"])
     if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
-      sha3.update(hash)
+      blake2b.update(hash)
     end
   end
 end
-hash = sha3.final
+hash = blake2b.final
 
 pubkey = ARGV[0]
 signature = ARGV[1]

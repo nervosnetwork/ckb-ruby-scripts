@@ -14,14 +14,14 @@ def hex_to_bin(s)
 end
 
 tx = CKB.load_tx
-sha3 = Sha3.new
+blake2b = Blake2b.new
 
 tx["inputs"].each_with_index do |input, i|
-  sha3.update(input["hash"])
-  sha3.update(input["index"].to_s)
-  sha3.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
+  blake2b.update(input["hash"])
+  blake2b.update(input["index"].to_s)
+  blake2b.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
 end
-hash = sha3.final
+hash = blake2b.final
 
 pubkey = ARGV[0]
 signature = ARGV[1]

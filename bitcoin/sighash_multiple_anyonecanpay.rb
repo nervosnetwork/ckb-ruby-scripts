@@ -17,23 +17,23 @@ def hex_to_bin(s)
 end
 
 tx = CKB.load_tx
-sha3 = Sha3.new
+blake2b = Blake2b.new
 
 out_point = CKB.load_input_out_point(0, CKB::Source::CURRENT)
-sha3.update(out_point["hash"])
-sha3.update(out_point["index"].to_s)
-sha3.update(CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::LOCK_HASH).readall)
+blake2b.update(out_point["hash"])
+blake2b.update(out_point["index"].to_s)
+blake2b.update(CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::LOCK_HASH).readall)
 ARGV[2].split(",").each do |output_index|
   output_index = output_index.to_i
   output = tx["outputs"][output_index]
-  sha3.update(output["capacity"].to_s)
-  sha3.update(output["lock"])
+  blake2b.update(output["capacity"].to_s)
+  blake2b.update(output["lock"])
   if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
-    sha3.update(hash)
+    blake2b.update(hash)
   end
 end
 
-hash = sha3.final
+hash = blake2b.final
 
 pubkey = ARGV[0]
 signature = ARGV[1]
