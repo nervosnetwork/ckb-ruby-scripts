@@ -107,14 +107,14 @@ else
     CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK) == current_lock_hash &&
       CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::TYPE) == current_contract_hash
   end
-  if input_matches.length > 1
+  if input_matches.length != 1
     raise "Invalid input cell number!"
   end
   output_matches = tx["outputs"].length.times.select do |i|
     CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::LOCK) == current_lock_hash &&
       CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE) == current_contract_hash
   end
-  if output_matches.length > 1
+  if output_matches.length != 1
     raise "Invalid output cell number!"
   end
   input_index = input_matches[0]
