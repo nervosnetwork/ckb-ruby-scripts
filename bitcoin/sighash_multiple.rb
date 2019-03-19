@@ -16,6 +16,8 @@ def hex_to_bin(s)
   [s].pack("H*")
 end
 
+OUTPUT_INDEX_ERR = "Output index error!".freeze
+
 tx = CKB.load_tx
 blake2b = Blake2b.new
 
@@ -26,11 +28,14 @@ tx["inputs"].each_with_index do |input, i|
 end
 ARGV[2].split(",").each do |output_index|
   output_index = output_index.to_i
-  output = tx["outputs"][output_index]
-  blake2b.update(output["capacity"].to_s)
-  blake2b.update(output["lock"])
-  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
-    blake2b.update(hash)
+  if output = tx["outputs"][output_index]
+    blake2b.update(output["capacity"].to_s)
+    blake2b.update(output["lock"])
+    if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
+      blake2b.update(hash)
+    end
+  else
+    raise OUTPUT_INDEX_ERR
   end
 end
 
