@@ -40,7 +40,7 @@ if ARGV.length == 3
   end
   tx["outputs"].each_with_index do |output, i|
     hash = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE)
-    if CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE) == contract_type_hash
+    if hash == contract_type_hash
       blake2b.update(CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).read(0, 8))
     end
   end
