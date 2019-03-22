@@ -1,18 +1,19 @@
-# This contract needs following signed arguments:
-# 0. rate, used to tell how many tokens can 1 CKB capacity exchange.
-# 1. lock hash, used to receive capacity in ICO phase
-# 2. pubkey, used to identify token owner
+# This contract needs following required arguments:
+# 0. input hash, used to uniquely identify current cell
+# 1. rate, used to tell how many tokens can 1 CKB capacity exchange.
+# 2. lock hash, used to receive capacity in ICO phase
+# 3. pubkey, used to identify token owner
 #
-# This contracts also 3 optional unsigned arguments:
-# 3. signature, signature used to present ownership
-# 4. type, SIGHASH type
-# 5. output(s), this is only used for SIGHASH_SINGLE and SIGHASH_MULTIPLE types,
+# This contracts also 3 optional arguments:
+# 4. signature, signature used to present ownership
+# 5. type, SIGHASH type
+# 6. output(s), this is only used for SIGHASH_SINGLE and SIGHASH_MULTIPLE types,
 # for SIGHASH_SINGLE, it stores an integer denoting the index of output to be
 # signed; for SIGHASH_MULTIPLE, it stores a string of `,` separated array denoting
-# outputs to sign
+# outputs to sign.
 # If they exist, we will do the proper signature verification way, if not
 # we will check and perform an ICO step using rate.
-if ARGV.length != 3 && ARGV.length != 5 && ARGV.length != 6
+if ARGV.length != 4 && ARGV.length != 6 && ARGV.length != 7
   raise "Wrong number of arguments!"
 end
 
@@ -31,8 +32,8 @@ end
 
 def blake2b_single_output(blake2b, output, output_index)
   blake2b.update(output["capacity"].to_s)
-  blake2b.update(output["lock"])
-  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
+  blake2b.update(CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::HashType::LOCK))
+  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::HashType::TYPE)
     blake2b.update(hash)
   end
 end
@@ -42,25 +43,23 @@ OUTPUT_INDEX_ERR = "Output index error!".freeze
 
 tx = CKB.load_tx
 
-if ARGV.length >= 5
+if ARGV.length >= 6
   blake2b = Blake2b.new
-  ARGV.drop(4).each do |argument|
+  ARGV.drop(5).each do |argument|
     blake2b.update(argument)
   end
-  sighash_type = ARGV[4].to_i
+  sighash_type = ARGV[5].to_i
 
   if sighash_type & SIGHASH_ANYONECANPAY != 0
     # Only hash current input
     outpoint = CKB.load_input_out_point(0, CKB::Source::CURRENT)
     blake2b.update(outpoint["hash"])
     blake2b.update(outpoint["index"].to_s)
-    blake2b.update(CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::LOCK_HASH).readall)
   else
     # Hash all inputs
     tx["inputs"].each_with_index do |input, i|
       blake2b.update(input["hash"])
       blake2b.update(input["index"].to_s)
-      blake2b.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
     end
   end
 
@@ -70,16 +69,16 @@ if ARGV.length >= 5
       blake2b_single_output(blake2b, output, i)
     end
   when SIGHASH_SINGLE
-    raise "Not enough arguments" unless ARGV[5]
-    output_index = ARGV[5].to_i
+    raise "Not enough arguments" unless ARGV[6]
+    output_index = ARGV[6].to_i
     if output = tx["outputs"][output_index]
       blake2b_single_output(blake2b, output, output_index)
     else
       raise OUTPUT_INDEX_ERR
     end
   when SIGHASH_MULTIPLE
-    raise "Not enough arguments" unless ARGV[5]
-    ARGV[5].split(",").each do |output_index|
+    raise "Not enough arguments" unless ARGV[6]
+    ARGV[6].split(",").each do |output_index|
       output_index = output_index.to_i
       if output = tx["outputs"][output_index]
         blake2b_single_output(blake2b, output, output_index)
@@ -90,8 +89,8 @@ if ARGV.length >= 5
   end
   hash = blake2b.final
 
-  pubkey = ARGV[2]
-  signature = ARGV[3]
+  pubkey = ARGV[3]
+  signature = ARGV[4]
 
   unless Secp256k1.verify(hex_to_bin(pubkey), hex_to_bin(signature), hash)
     raise "Signature verification error!"
@@ -99,24 +98,24 @@ if ARGV.length >= 5
   return
 end
 
-contract_type_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::Category::TYPE)
+contract_type_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::HashType::TYPE)
 
 # First, we test there's at least one output that has current UDT contract, so the
 # cell contract validator code can take place
 has_udt_output = tx["outputs"].length.times.any? do |i|
-  CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE) == contract_type_hash
+  CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::TYPE) == contract_type_hash
 end
 unless has_udt_output
   raise "There must at least be one contract output!"
 end
 
 # Next we test that there's one output cell transformed from current cell.
-current_input_lock = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::Category::LOCK)
+current_input_lock = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::HashType::LOCK)
 current_input_capacity = CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::CAPACITY).readall.unpack("Q<")[0]
 
 current_output_index = tx["outputs"].length.times.find do |i|
-  lock = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::LOCK)
-  type = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE)
+  lock = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::LOCK)
+  type = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::TYPE)
   capacity = tx["outputs"][i]["capacity"]
 
   lock == current_input_lock &&
@@ -130,7 +129,7 @@ end
 # Finally, we test that in exchange for tokens, the sender has paid enough capacity
 # in a new empty cell.
 paid_output_index = tx["outputs"].length.times.find do |i|
-  CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::LOCK) == hex_to_bin(ARGV[1])
+  CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::LOCK) == hex_to_bin(ARGV[2])
 end
 unless paid_output_index
   raise "Cannot find paid output!"
@@ -143,7 +142,7 @@ if CKB::CellField.new(CKB::Source::OUTPUT, paid_output_index, CKB::CellField::TY
 end
 input_tokens = CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
 output_tokens = CKB::CellField.new(CKB::Source::OUTPUT, current_output_index, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
-rate = ARGV[0].to_i
+rate = ARGV[1].to_i
 required_capacity = (input_tokens - output_tokens + rate - 1) / rate
 paid_output = tx["outputs"][paid_output_index]
 if paid_output["capacity"] != required_capacity

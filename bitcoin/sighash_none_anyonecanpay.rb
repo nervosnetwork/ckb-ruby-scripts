@@ -1,7 +1,6 @@
-# This contract needs 1 signed arguments:
-# 1. pubkey, used to identify token owner
-# This contracts also accepts one unsigned argument:
-# 2. signature, signature used to present ownership
+# This contract needs 2 arguments:
+# 0. pubkey, used to identify token owner
+# 1. signature, signature used to present ownership
 if ARGV.length != 2
   raise "Wrong number of arguments!"
 end
@@ -19,7 +18,6 @@ blake2b = Blake2b.new
 out_point = CKB.load_input_out_point(0, CKB::Source::CURRENT)
 blake2b.update(out_point["hash"])
 blake2b.update(out_point["index"].to_s)
-blake2b.update(CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::LOCK_HASH).readall)
 hash = blake2b.final
 
 pubkey = ARGV[0]
