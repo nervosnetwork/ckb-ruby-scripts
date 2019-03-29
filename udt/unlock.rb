@@ -1,12 +1,11 @@
-# This contract needs 2 signed arguments:
+# This contract needs 4 required arguments:
 # 0. token name, this is here so we can have different lock hash for
 # different token for ease of querying. In the actual contract this is
 # not used.
 # 1. pubkey, used to identify token owner
-# This contracts also accepts 2 required unsigned arguments and 1
-# optional unsigned argument:
 # 2. signature, signature used to present ownership
 # 3. type, SIGHASH type
+# One optional argument might be needed here:
 # 4. output(s), this is only used for SIGHASH_SINGLE and SIGHASH_MULTIPLE types,
 # for SIGHASH_SINGLE, it stores an integer denoting the index of output to be
 # signed; for SIGHASH_MULTIPLE, it stores a string of `,` separated array denoting
@@ -30,8 +29,8 @@ end
 
 def blake2b_single_output(blake2b, output, output_index)
   blake2b.update(output["capacity"].to_s)
-  blake2b.update(output["lock"])
-  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
+  blake2b.update(CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::HashType::LOCK))
+  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::HashType::TYPE)
     blake2b.update(hash)
   end
 end
@@ -49,13 +48,11 @@ if sighash_type & SIGHASH_ANYONECANPAY != 0
   out_point = CKB.load_input_out_point(0, CKB::Source::CURRENT)
   blake2b.update(out_point["hash"])
   blake2b.update(out_point["index"].to_s)
-  blake2b.update(CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::LOCK_HASH).readall)
 else
   # Hash all inputs
   tx["inputs"].each_with_index do |input, i|
     blake2b.update(input["hash"])
     blake2b.update(input["index"].to_s)
-    blake2b.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
   end
 end
 

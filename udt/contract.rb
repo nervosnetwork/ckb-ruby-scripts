@@ -1,12 +1,9 @@
-# This contract needs 2 signed arguments:
+# This contract needs 2 arguments:
 # 0. token name, this is just a placeholder to distinguish between tokens,
 # it will not be used in the actual contract. The pair of token name and
 # pubkey uniquely identifies a token.
 # 1. pubkey, used to perform supermode operations such as issuing new tokens
-# This contract might also need 1 optional unsigned argument:
-# 2. (optional) supermode signature, when present and verified, the transaction
-# can perform super mode operations
-if ARGV.length != 2 && ARGV.length != 3
+if ARGV.length != 2
   raise "Not enough arguments!"
 end
 
@@ -17,10 +14,12 @@ def hex_to_bin(s)
   [s].pack("H*")
 end
 
-contract_type_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::Category::TYPE)
+current_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::HashType::TYPE)
 
 tx = CKB.load_tx
 
+cell = CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::DATA)
+cell_data_length = cell.length
 supermode = false
 # There are 2 ways to execute this contract:
 # * Normal user can run the contract with only contract hash attached
@@ -30,31 +29,31 @@ supermode = false
 # the script to a special mode by attaching a signature signed from private
 # key for the pubkey attached. With this signature, they will be able to
 # add more tokens.
-if ARGV.length == 3
+if cell_data_length > 8
+  signature = cell.read(8, cell_data_length - 8)
+
   blake2b = Blake2b.new
-  blake2b.update(contract_type_hash)
   tx["inputs"].each_with_index do |input, i|
-    if CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::TYPE) == contract_type_hash
+    if CKB.load_script_hash(i, CKB::Source::INPUT, CKB::HashType::TYPE) == current_hash
       blake2b.update(CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::DATA).read(0, 8))
     end
   end
   tx["outputs"].each_with_index do |output, i|
-    hash = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE)
-    if CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE) == contract_type_hash
+    if CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::TYPE) == current_hash
       blake2b.update(CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).read(0, 8))
     end
   end
 
   data = blake2b.final
 
-  unless Secp256k1.verify(hex_to_bin(ARGV[1]), hex_to_bin(ARGV[2]), data)
+  unless Secp256k1.verify(hex_to_bin(ARGV[1]), signature, data)
     raise "Signature verification error!"
   end
   supermode = true
 end
 
 input_sum = tx["inputs"].size.times.map do |i|
-  if CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::TYPE) == contract_type_hash
+  if CKB.load_script_hash(i, CKB::Source::INPUT, CKB::HashType::TYPE) == current_hash
     CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
   else
     0
@@ -62,7 +61,7 @@ input_sum = tx["inputs"].size.times.map do |i|
 end.reduce(&:+)
 
 output_sum = tx["outputs"].size.times.map do |i|
-  if CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE) == contract_type_hash
+  if CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::TYPE) == current_hash
     CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
   else
     0

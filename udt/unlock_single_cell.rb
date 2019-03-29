@@ -1,15 +1,15 @@
-# This contract needs 2 signed arguments:
+# This contract needs 2 required arguments:
 # 0. token name, this is here so we can have different lock hash for
 # different token for ease of querying. In the actual contract this is
 # not used.
 # 1. pubkey, used to identify token owner
-# This contracts also 3 optional unsigned arguments:
+# This contracts also 3 optional arguments:
 # 2. signature, signature used to present ownership
 # 3. type, SIGHASH type
 # 4. output(s), this is only used for SIGHASH_SINGLE and SIGHASH_MULTIPLE types,
 # for SIGHASH_SINGLE, it stores an integer denoting the index of output to be
 # signed; for SIGHASH_MULTIPLE, it stores a string of `,` separated array denoting
-# outputs to sign
+# outputs to sign.
 # If they exist, we will do the proper signature verification way, if not
 # we will check for lock hash, and only accept transactions that have more
 # tokens in the output cell than input cell so as to allow receiving tokens.
@@ -32,8 +32,8 @@ end
 
 def blake2b_single_output(blake2b, output, output_index)
   blake2b.update(output["capacity"].to_s)
-  blake2b.update(output["lock"])
-  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::Category::TYPE)
+  blake2b.update(CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::HashType::LOCK))
+  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::HashType::TYPE)
     blake2b.update(hash)
   end
 end
@@ -52,13 +52,11 @@ if ARGV.length >= 4
     out_point = CKB.load_input_out_point(0, CKB::Source::CURRENT)
     blake2b.update(out_point["hash"])
     blake2b.update(out_point["index"].to_s)
-    blake2b.update(CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::LOCK_HASH).readall)
   else
     # Hash all inputs
     tx["inputs"].each_with_index do |input, i|
       blake2b.update(input["hash"])
       blake2b.update(input["index"].to_s)
-      blake2b.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
     end
   end
 
@@ -102,21 +100,21 @@ else
   # than the input
   # This would allow a sender to send tokens to a receiver in one step
   # without needing work from the receiver side.
-  current_lock_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::Category::LOCK)
-  current_contract_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::Category::TYPE)
+  current_lock_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::HashType::LOCK)
+  current_contract_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::HashType::TYPE)
   unless current_contract_hash
     raise "Contract is not available in current cell!"
   end
   input_matches = tx["inputs"].length.times.select do |i|
-    CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK) == current_lock_hash &&
-      CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::TYPE) == current_contract_hash
+    CKB.load_script_hash(i, CKB::Source::INPUT, CKB::HashType::LOCK) == current_lock_hash &&
+      CKB.load_script_hash(i, CKB::Source::INPUT, CKB::HashType::TYPE) == current_contract_hash
   end
   if input_matches.length != 1
     raise "Invalid input cell number!"
   end
   output_matches = tx["outputs"].length.times.select do |i|
-    CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::LOCK) == current_lock_hash &&
-      CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::Category::TYPE) == current_contract_hash
+    CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::LOCK) == current_lock_hash &&
+      CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::TYPE) == current_contract_hash
   end
   if output_matches.length != 1
     raise "Invalid output cell number!"

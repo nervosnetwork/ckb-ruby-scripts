@@ -1,7 +1,6 @@
-# This contract needs 1 signed arguments:
-# 1. pubkey, used to identify token owner
-# This contracts also accepts one unsigned argument:
-# 2. signature, signature used to present ownership
+# This contract needs 2 arguments:
+# 0. pubkey, used to identify token owner
+# 1. signature, signature used to present ownership
 if ARGV.length != 2
   raise "Wrong number of arguments!"
 end
@@ -19,7 +18,6 @@ blake2b = Blake2b.new
 tx["inputs"].each_with_index do |input, i|
   blake2b.update(input["hash"])
   blake2b.update(input["index"].to_s)
-  blake2b.update(CKB.load_script_hash(i, CKB::Source::INPUT, CKB::Category::LOCK))
 end
 hash = blake2b.final
 
