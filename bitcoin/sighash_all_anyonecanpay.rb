@@ -1,4 +1,4 @@
-# This contract needs 2 arguments:
+# This contract needs 2 witnesses:
 # 0. pubkey, used to identify token owner
 # 1. signature, signature used to present ownership
 if ARGV.length != 2
