@@ -1,9 +1,11 @@
-# This contract needs 3 arguments:
-# 0. pubkey, used to identify token owner
-# 1. signature, signature used to present ownership
-# 2. string of `,` separated array denoting outputs to sign.
+# This contract needs 1 arguments:
+# 0. string of `,` separated array denoting outputs to sign.
 # It's up to transaction assembler to arrange outputs, this script
 # only cares that correct data are signed.
+#
+# This contract needs 2 witnesses:
+# 1. pubkey, used to identify token owner
+# 2. signature, signature used to present ownership
 if ARGV.length != 3
   raise "Wrong number of arguments!"
 end
@@ -21,7 +23,7 @@ blake2b = Blake2b.new
 out_point = CKB.load_input_out_point(0, CKB::Source::CURRENT)
 blake2b.update(out_point["hash"])
 blake2b.update(out_point["index"].to_s)
-ARGV[2].split(",").each do |output_index|
+ARGV[0].split(",").each do |output_index|
   output_index = output_index.to_i
   output = tx["outputs"][output_index]
   blake2b.update(output["capacity"].to_s)
@@ -33,8 +35,8 @@ end
 
 hash = blake2b.final
 
-pubkey = ARGV[0]
-signature = ARGV[1]
+pubkey = ARGV[1]
+signature = ARGV[2]
 
 unless Secp256k1.verify(hex_to_bin(pubkey), hex_to_bin(signature), hash)
   raise "Signature verification error!"

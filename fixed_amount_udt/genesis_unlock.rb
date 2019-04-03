@@ -2,17 +2,19 @@
 # 0. input hash, used to uniquely identify current cell
 # 1. rate, used to tell how many tokens can 1 CKB capacity exchange.
 # 2. lock hash, used to receive capacity in ICO phase
-# 3. pubkey, used to identify token owner
 #
 # This contracts also 3 optional arguments:
-# 4. signature, signature used to present ownership
-# 5. type, SIGHASH type
-# 6. output(s), this is only used for SIGHASH_SINGLE and SIGHASH_MULTIPLE types,
+# 3. type, SIGHASH type
+# 4. output(s), this is only used for SIGHASH_SINGLE and SIGHASH_MULTIPLE types,
 # for SIGHASH_SINGLE, it stores an integer denoting the index of output to be
 # signed; for SIGHASH_MULTIPLE, it stores a string of `,` separated array denoting
 # outputs to sign.
 # If they exist, we will do the proper signature verification way, if not
 # we will check and perform an ICO step using rate.
+#
+# Witnesses:
+# 5. pubkey, used to identify token owner
+# 6. signature, signature used to present ownership
 if ARGV.length != 4 && ARGV.length != 6 && ARGV.length != 7
   raise "Wrong number of arguments!"
 end
@@ -45,10 +47,10 @@ tx = CKB.load_tx
 
 if ARGV.length >= 6
   blake2b = Blake2b.new
-  ARGV.drop(5).each do |argument|
+  ARGV[3..4].each do |argument|
     blake2b.update(argument)
   end
-  sighash_type = ARGV[5].to_i
+  sighash_type = ARGV[3].to_i
 
   if sighash_type & SIGHASH_ANYONECANPAY != 0
     # Only hash current input
@@ -69,16 +71,16 @@ if ARGV.length >= 6
       blake2b_single_output(blake2b, output, i)
     end
   when SIGHASH_SINGLE
-    raise "Not enough arguments" unless ARGV[6]
-    output_index = ARGV[6].to_i
+    raise "Not enough arguments" unless ARGV[4]
+    output_index = ARGV[4].to_i
     if output = tx["outputs"][output_index]
       blake2b_single_output(blake2b, output, output_index)
     else
       raise OUTPUT_INDEX_ERR
     end
   when SIGHASH_MULTIPLE
-    raise "Not enough arguments" unless ARGV[6]
-    ARGV[6].split(",").each do |output_index|
+    raise "Not enough arguments" unless ARGV[4]
+    ARGV[4].split(",").each do |output_index|
       output_index = output_index.to_i
       if output = tx["outputs"][output_index]
         blake2b_single_output(blake2b, output, output_index)
@@ -89,8 +91,8 @@ if ARGV.length >= 6
   end
   hash = blake2b.final
 
-  pubkey = ARGV[3]
-  signature = ARGV[4]
+  pubkey = ARGV[-2]
+  signature = ARGV[-1]
 
   unless Secp256k1.verify(hex_to_bin(pubkey), hex_to_bin(signature), hash)
     raise "Signature verification error!"
