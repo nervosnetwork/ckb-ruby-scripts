@@ -3,83 +3,82 @@
 # bootstrapping phases would generate contracts with different type hash, hence
 # preventing the problem when token creator executes more than one token creation
 # process, ensuring that we can create a token with a fixed upper limit.
-# 1. pubkey, used to identify token owner
+# 1. pubkey hash, used to identify token owner
 if ARGV.length != 2
   raise "Not enough arguments!"
 end
 
-def hex_to_bin(s)
-  if s.start_with?("0x")
-    s = s[2..-1]
+current_hash = CKB.load_script_hash
+
+outputs = []
+supermode_data = nil
+
+i = 0
+loop do
+  hash = CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::TYPE_HASH).readall
+  next if current_hash == hash
+  data = CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).readall
+  outputs << data[0, 8].unpack("Q<")[0]
+  if data.length > 8
+    if supermode_data
+      raise "Cannot have more than one supermode output cell!"
+    end
+
+    witness_index = data[8, 8].unpack("Q<")[0]
+    witness = CKB.parse_witness(CKB.load_witness(witness_index))["data"]
+    supermode_data = {
+      pubkey: witness[witness.length - 2],
+      signature: witness[witness.length - 1]
+    }
   end
-  [s].pack("H*")
+  data.clear
+  i += 1
+rescue CKB::IndexOutOfBound
+  break
 end
 
-current_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::HashType::TYPE)
-
-tx = CKB.load_tx
-
-cell = CKB::CellField.new(CKB::Source::CURRENT, 0, CKB::CellField::DATA)
-cell_data_length = cell.length
-if cell_data_length > 8
-  signature = cell.read(8, cell_data_length - 8)
-
-  message_blake2b = Blake2b.new
-  tx["inputs"].each_with_index do |input, i|
-    message_blake2b.update(input["hash"])
-    message_blake2b.update(input["index"].to_s)
+if supermode_data
+  # Validate input outpoint hash
+  b = Blake2b.new
+  i = 0
+  loop do
+    b.update(CKB::InputField.new(CKB::Source::INPUT, i,
+                                 CKB::InputField::OUT_POINT).readall)
+    i += 1
+  rescue CKB::IndexOutOfBound
+    break
   end
-  if hex_to_bin(ARGV[0]) != message_blake2b.final
-    raise "Input hash is incorrect!"
+  if b.final != [ARGV[0][2..-1]].pack("H*")
+    raise "Invalid input outpoint hash!"
   end
 
-  blake2b = Blake2b.new
-  # Contract type hash already encodes all signed arguments here
-  blake2b.update(current_hash)
-  tx["inputs"].each_with_index do |input, i|
-    blake2b.update(input["hash"])
-    blake2b.update(input["index"].to_s)
-    hash = CKB.load_script_hash(i, CKB::Source::INPUT, CKB::HashType::TYPE)
-    if hash == current_hash
-      blake2b.update(CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::DATA).read(0, 8))
-    end
-  end
-  tx["outputs"].each_with_index do |output, i|
-    blake2b.update(output["capacity"].to_s)
-    blake2b.update(CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::LOCK))
-    hash = CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::TYPE)
-    if hash
-      blake2b.update(hash)
-      if hash == current_hash
-        blake2b.update(CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).read(0, 8))
-      end
-    end
+  # Validate pubkey
+  hash = Blake2b.new.update(supermode_data[:pubkey]).final[0..20]
+  if hash != [ARGV[1][2..-1]].pack("H*")
+    raise "Invalid pubkey!"
   end
 
-  data = blake2b.final
-
-  unless Secp256k1.verify(hex_to_bin(ARGV[1]), signature, data)
+  # Validate signature
+  message = CKB.load_tx_hash
+  unless Secp256k1.verify(supermode_data[:pubkey], supermode_data[:signature], message)
     raise "Signature verification error!"
   end
   return
 end
 
-input_sum = tx["inputs"].size.times.map do |i|
-  if CKB.load_script_hash(i, CKB::Source::INPUT, CKB::HashType::TYPE) == current_hash
-    CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
-  else
-    0
-  end
-end.reduce(&:+)
+inputs = []
 
-output_sum = tx["outputs"].size.times.map do |i|
-  if CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::TYPE) == current_hash
-    CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
-  else
-    0
-  end
-end.reduce(&:+)
+i = 0
+loop do
+  hash = CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::TYPE_HASH).readall
+  next if current_hash == hash
+  data = CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::DATA).readall
+  inputs << data[0, 8].unpack("Q<")[0]
+  i += 1
+rescue CKB::IndexOutOfBound
+  break
+end
 
-if input_sum != output_sum
+if inputs.reduce(&:+) != outputs.reduce(&:+)
   raise "Sum verification failed!"
 end

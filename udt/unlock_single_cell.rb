@@ -2,133 +2,98 @@
 # 0. token name, this is here so we can have different lock hash for
 # different token for ease of querying. In the actual contract this is
 # not used.
-# 1. pubkey, used to identify token owner
-# This contracts also 3 optional arguments:
-# 2. signature, signature used to present ownership
-# 3. type, SIGHASH type
-# 4. output(s), this is only used for SIGHASH_SINGLE and SIGHASH_MULTIPLE types,
-# for SIGHASH_SINGLE, it stores an integer denoting the index of output to be
-# signed; for SIGHASH_MULTIPLE, it stores a string of `,` separated array denoting
-# outputs to sign.
+# 1. pubkey hash, used to identify token owner
+# This contracts also can accept 2 optional arguments:
+# 2. pubkey, used to identify token owner
+# 3. signature, signature used to present ownership
 # If they exist, we will do the proper signature verification way, if not
 # we will check for lock hash, and only accept transactions that have more
 # tokens in the output cell than input cell so as to allow receiving tokens.
-if ARGV.length != 2 && ARGV.length != 4 && ARGV.length != 5
+if ARGV.length != 2 && ARGV.length != 4
   raise "Wrong number of arguments!"
 end
 
-SIGHASH_ALL = 0x1
-SIGHASH_NONE = 0x2
-SIGHASH_SINGLE = 0x3
-SIGHASH_MULTIPLE = 0x4
-SIGHASH_ANYONECANPAY = 0x80
+if ARGV.length == 4
+  public_key_hash = [ARGV[1][2..-1]].pack("H*")
+  public_key = [ARGV[2][2..-1]].pack("H*")
+  signature = [ARGV[3][2..-1]].pack("H*")
 
-def hex_to_bin(s)
-  if s.start_with?("0x")
-    s = s[2..-1]
-  end
-  [s].pack("H*")
-end
-
-def blake2b_single_output(blake2b, output, output_index)
-  blake2b.update(output["capacity"].to_s)
-  blake2b.update(CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::HashType::LOCK))
-  if hash = CKB.load_script_hash(output_index, CKB::Source::OUTPUT, CKB::HashType::TYPE)
-    blake2b.update(hash)
-  end
-end
-
-OUTPUT_INDEX_ERR = "Output index error!".freeze
-
-tx = CKB.load_tx
-blake2b = Blake2b.new
-
-if ARGV.length >= 4
-  blake2b.update(ARGV[3])
-  sighash_type = ARGV[3].to_i
-
-  if sighash_type & SIGHASH_ANYONECANPAY != 0
-    # Only hash current input
-    out_point = CKB.load_input_out_point(0, CKB::Source::CURRENT)
-    blake2b.update(out_point["hash"])
-    blake2b.update(out_point["index"].to_s)
-  else
-    # Hash all inputs
-    tx["inputs"].each_with_index do |input, i|
-      blake2b.update(input["hash"])
-      blake2b.update(input["index"].to_s)
-    end
+  hash = Blake2b.new.update(pubkey).final[0..20]
+  unless hash == pubkey_hash
+    raise "Invalid pubkey!"
   end
 
-  case sighash_type & (~SIGHASH_ANYONECANPAY)
-  when SIGHASH_ALL
-    tx["outputs"].each_with_index do |output, i|
-      blake2b_single_output(blake2b, output, i)
-    end
-  when SIGHASH_SINGLE
-    raise "Not enough arguments" unless ARGV[4]
-    output_index = ARGV[4].to_i
-    if output = tx["outputs"][output_index]
-      blake2b_single_output(blake2b, output, output_index)
-    else
-      raise OUTPUT_INDEX_ERR
-    end
-  when SIGHASH_MULTIPLE
-    raise "Not enough arguments" unless ARGV[4]
-    ARGV[4].split(",").each do |output_index|
-      output_index = output_index.to_i
-      if output = tx["outputs"][output_index]
-        blake2b_single_output(blake2b, output, output_index)
-      else
-        raise OUTPUT_INDEX_ERR
-      end
-    end
-  end
-  hash = blake2b.final
+  message = CKB.load_tx_hash
 
-  pubkey = ARGV[1]
-  signature = ARGV[2]
-
-  unless Secp256k1.verify(hex_to_bin(pubkey), hex_to_bin(signature), hash)
+  unless Secp256k1.verify(public_key, signature, message)
     raise "Signature verification error!"
   end
-else
-  # In case a signature is missing, we will only accept the tx when:
-  # * The tx only has one input matching current lock hash and contract hash
-  # * The tx only has one output matching current lock hash and contract hash
-  # * The matched output has the same amount of capacity but more tokens
-  # than the input
-  # This would allow a sender to send tokens to a receiver in one step
-  # without needing work from the receiver side.
-  current_lock_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::HashType::LOCK)
-  current_contract_hash = CKB.load_script_hash(0, CKB::Source::CURRENT, CKB::HashType::TYPE)
-  unless current_contract_hash
-    raise "Contract is not available in current cell!"
+end
+
+# In case a signature is missing, we will only accept the tx when:
+# * The tx only has one input matching current lock hash and contract hash
+# * The tx only has one output matching current lock hash and contract hash
+# * The matched output has the same amount of capacity but more tokens
+# than the input
+# This would allow a sender to send tokens to a receiver in one step
+# without needing work from the receiver side.
+current_lock_hash = CKB.load_script_hash
+# Locate current cell first
+current_cell_index = nil
+i = 0
+loop do
+  hash = CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::LOCK_HASH).readall
+  if hash == current_lock_hash
+    raise "More than one target cell exists!" if current_cell_index
+    current_cell_index = i
   end
-  input_matches = tx["inputs"].length.times.select do |i|
-    CKB.load_script_hash(i, CKB::Source::INPUT, CKB::HashType::LOCK) == current_lock_hash &&
-      CKB.load_script_hash(i, CKB::Source::INPUT, CKB::HashType::TYPE) == current_contract_hash
+  i += 1
+rescue CKB::IndexOutOfBound
+  break
+end
+raise "Target input cell does not exist!" unless current_cell_index
+
+current_type_hash = CKB::CellField.new(CKB::Source::INPUT, current_cell_index,
+                                  CKB::CellField::TYPE_HASH).readall
+raise "Type hash does not exist" unless current_type_hash
+
+input_index = nil
+i = 0
+loop do
+  lock = CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::LOCK_HASH)
+  type = CKB::CellField.new(CKB::Source::INPUT, i, CKB::CellField::TYPE_HASH)
+  if current_lock_hash == lock && current_type_hash == type
+    raise "Multiple input cell exists!" if input_index
+    input_index = i
   end
-  if input_matches.length != 1
-    raise "Invalid input cell number!"
+  i += 1
+rescue CKB::IndexOutOfBound
+  break
+end
+output_index = nil
+i = 0
+loop do
+  lock = CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::LOCK_HASH)
+  type = CKB::CellField.new(CKB::Source::OUTPUT, i, CKB::CellField::TYPE_HASH)
+  if current_lock_hash == lock && current_type_hash == type
+    raise "Multiple output cell exists!" if output_index
+    output_index = i
   end
-  output_matches = tx["outputs"].length.times.select do |i|
-    CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::LOCK) == current_lock_hash &&
-      CKB.load_script_hash(i, CKB::Source::OUTPUT, CKB::HashType::TYPE) == current_contract_hash
-  end
-  if output_matches.length != 1
-    raise "Invalid output cell number!"
-  end
-  input_index = input_matches[0]
-  output_index = output_matches[0]
-  input_capacity = CKB::CellField.new(CKB::Source::INPUT, input_index, CKB::CellField::CAPACITY).read(0, 8).unpack("Q<")[0]
-  output_capacity = CKB::CellField.new(CKB::Source::OUTPUT, output_index, CKB::CellField::CAPACITY).read(0, 8).unpack("Q<")[0]
-  if input_capacity != output_capacity
-    raise "Capacity cannot be tweaked!"
-  end
-  input_amount = CKB::CellField.new(CKB::Source::INPUT, input_index, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
-  output_amount = CKB::CellField.new(CKB::Source::OUTPUT, output_index, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
-  if output_amount <= input_amount
-    raise "You can only deposit tokens here!"
-  end
+  i += 1
+rescue CKB::IndexOutOfBound
+  break
+end
+
+input_capacity = CKB::CellField.new(CKB::Source::INPUT, input_index, CKB::CellField::CAPACITY).read(0, 8).unpack("Q<")[0]
+output_capacity = CKB::CellField.new(CKB::Source::OUTPUT, output_index, CKB::CellField::CAPACITY).read(0, 8).unpack("Q<")[0]
+if input_capacity != output_capacity
+  raise "Capacity cannot be tweaked!"
+end
+input_amount = CKB::CellField.new(CKB::Source::INPUT, input_index, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
+if CKB::CellField.new(CKB::Source::OUTPUT, output_index, CKB::CellField::DATA).length > 8
+  raise "Too much data is used!"
+end
+output_amount = CKB::CellField.new(CKB::Source::OUTPUT, output_index, CKB::CellField::DATA).read(0, 8).unpack("Q<")[0]
+if output_amount <= input_amount
+  raise "You can only deposit tokens here!"
 end
